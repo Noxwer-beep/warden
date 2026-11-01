@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Warden{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230d0f12'/><path d='M16 6l9 4v7c0 6-4 8-9 10-5-2-9-4-9-10v-7z' fill='none' stroke='%23e8a33d' stroke-width='2.2' stroke-linejoin='round'/><path d='M12 16l3 3 6-6' fill='none' stroke='%236ee787' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+</head>
+<body>
+  <header class="bar">
+    <a class="brand" href="{{ url_for('index') }}">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="word">WARDEN</span>
+    </a>
+    <p class="meta" id="meta">
+      {% if inv %}{{ inv.hosts|length }} host(s) · {{ inv.services|length }} service(s){% endif %}
+    </p>
+    <form method="post" action="{{ url_for('run_now') }}" class="run-form">
+      <button class="btn primary" type="submit" {% if running %}disabled{% endif %}>
+        {% if running %}running…{% else %}Run checks{% endif %}
+      </button>
+    </form>
+  </header>
+
+  <main>
+    {% block body %}{% endblock %}
+  </main>
+
+  <footer class="foot">
+    <p>Warden {{ version }} — availability only: connect, request, handshake.</p>
+    <p class="dim">No credentials, no writes, no trust decisions. Use Vantage for certificate trust.</p>
+  </footer>
+</body>
+</html>

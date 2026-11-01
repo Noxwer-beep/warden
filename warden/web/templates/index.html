@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Warden · homelab status{% endblock %}
+
+{% block body %}
+<section class="summary">
+  <div class="counts">
+    {% for key in ['ok', 'warn', 'fail', 'unknown'] %}
+      {% if counts.get(key) %}
+      <div class="count s-{{ key }}">
+        <span class="n">{{ counts[key] }}</span>
+        <span class="l">{{ key }}</span>
+      </div>
+      {% endif %}
+    {% endfor %}
+    {% if not rows %}
+      <p class="empty">No runs recorded yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="when">
+    {% if latest %}
+      <p class="mono">last run {{ latest.started | replace('T', ' ') }}</p>
+      {% if running %}
+      <div class="progress"><div class="bar" style="width: {{ (100 * progress.done / progress.total) if progress.total else 0 }}%"></div></div>
+      <p class="mono dim">checking {{ progress.done }}/{{ progress.total }}…</p>
+      {% endif %}
+    {% endif %}
+  </div>
+</section>
+
+{% if drift and drift.noisy %}
+<section class="drift">
+  <h2 class="h">Changes since the previous run</h2>
+  <ul class="changes">
+    {% for c in drift.changes %}
+    <li class="change k-{{ c.kind }}">
+      <span class="arrow">{{ {'worsened':'↓','improved':'↑','appeared':'+','vanished':'−','cert':'⟳'}.get(c.kind, '•') }}</span>
+      <span class="svc mono">{{ c.service }}</span>
+      <span class="from-to mono">{{ c.before }} → {{ c.after }}</span>
+      <span class="detail">{{ c.detail }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="services">
+  {% for r in rows %}
+  {% set svc = services.get(r.service) %}
+  <article class="card s-{{ r.status }}">
+    <header class="card-head">
+      <span class="status s-{{ r.status }}">{{ {'ok':'✓','warn':'!','fail':'✗','unknown':'?'}[r.status] }} {{ r.status }}</span>
+      <a class="svc-link" href="{{ url_for('history_page', service=r.service) }}">{{ r.service }}</a>
+    </header>
+    <p class="target mono">{{ r.address }}:{{ r.port }} <span class="dim">{{ r.check }}</span></p>
+    <p class="detail">{{ r.detail or r.error or '—' }}</p>
+    <footer class="card-foot">
+      <span class="stat"><b>{{ '%.0f'|format(r.latency_ms) ~ ' ms' if r.latency_ms is not none else '—' }}</b><em>latency</em></span>
+      {% set up = uptimes.get(r.service) %}
+      <span class="stat"><b>{{ up.rate ~ '%' if up and up.rate is not none else '—' }}</b><em>uptime</em></span>
+      <span class="stat"><b>{{ up.streak if up else 0 }}</b><em>streak</em></span>
+      {% if r.tls_days_left is not none %}
+      <span class="stat"><b>{{ r.tls_days_left }}d</b><em>cert</em></span>
+      {% endif %}
+    </footer>
+  </article>
+  {% endfor %}
+
+  {% if not rows %}
+  <p class="empty">Press <b>Run checks</b> to record the first run.</p>
+  {% endif %}
+</section>
+
+{% if inv %}
+<p class="source mono dim">
+  inventory {{ inv.path.name }} · {{ inv.hosts|length }} host(s) · timeout {{ inv.timeout }}s ·
+  <a href="{{ url_for('export_md') }}">export markdown</a>
+</p>
+{% else %}
+<p class="source mono">No usable warden.toml — run <code>warden init</code>.</p>
+{% endif %}
+
+<script>
+(function () {
+  // Poll only while a run is in flight; a static page needs no traffic.
+  var running = {{ 'true' if running else 'false' }};
+  if (!running) return;
+  setTimeout(function () { location.reload(); }, 1500);
+})();
+</script>
+{% endblock %}

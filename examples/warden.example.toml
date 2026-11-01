@@ -1,0 +1,74 @@
+# Example inventory — copy to warden.toml and edit.
+# Addresses here are documentation ranges (RFC 5737 / RFC 1918 placeholders).
+
+[general]
+timeout_s = 5
+workers = 8
+warn_latency_ms = 1200
+cert_warn_days = 21
+
+# ---------------------------------------------------------------- hosts
+
+[[host]]
+name = "gateway"
+address = "10.10.10.1"
+tags = ["network"]
+notes = "Firewall. Everything else routes through it."
+
+[[host]]
+name = "hypervisor"
+address = "10.10.10.10"
+tags = ["compute"]
+notes = "Proxmox. Hosts the service VMs."
+
+[[host]]
+name = "nas"
+address = "10.10.10.20"
+tags = ["storage"]
+
+# ---------------------------------------------------------------- services
+
+[[service]]
+name = "firewall-ui"
+host = "gateway"
+port = 443
+check = "https"
+path = "/"
+tags = ["network", "web"]
+
+[[service]]
+name = "hypervisor-ui"
+host = "hypervisor"
+port = 8006
+check = "tls"
+tags = ["compute"]
+
+[[service]]
+name = "ssh"
+host = "hypervisor"
+port = 22
+check = "tcp"
+tags = ["compute"]
+
+[[service]]
+name = "postgres"
+host = "hypervisor"
+port = 5432
+check = "tcp"
+tags = ["db"]
+
+[[service]]
+name = "smb"
+host = "nas"
+port = 445
+check = "tcp"
+tags = ["storage"]
+
+[[service]]
+name = "nas-web"
+host = "nas"
+port = 5000
+check = "http"
+path = "/"
+expect_status = 200
+tags = ["storage", "web"]

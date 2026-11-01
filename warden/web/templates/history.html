@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Warden · {{ service }}{% endblock %}
+
+{% block body %}
+<section class="page-head">
+  <p class="crumb"><a href="{{ url_for('index') }}">← all services</a></p>
+  <h1 class="h1">{{ service }}</h1>
+  {% if uptime %}
+  <p class="mono dim">
+    uptime {{ uptime.rate }}% over {{ uptime.samples }} checks · streak {{ uptime.streak }}
+    {% if uptime.avg_latency_ms %}· avg {{ uptime.avg_latency_ms }} ms{% endif %}
+  </p>
+  {% endif %}
+</section>
+
+{% if rows %}
+<table class="data">
+  <thead><tr><th>When</th><th>Status</th><th>Latency</th><th>Detail</th></tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td class="mono">{{ r.started }}</td>
+      <td><span class="status s-{{ r.status }}">{{ {'ok':'✓','warn':'!','fail':'✗','unknown':'?'}[r.status] }} {{ r.status }}</span></td>
+      <td class="mono">{{ '%.0f'|format(r.latency_ms) ~ ' ms' if r.latency_ms is not none else '—' }}</td>
+      <td class="detail">{{ r.detail or r.error or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No history recorded for this service.</p>
+{% endif %}
+{% endblock %}

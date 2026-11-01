@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Warden · {{ title }}{% endblock %}
+
+{% block body %}
+<section class="page-head">
+  <h1 class="h1">{{ title }}</h1>
+  <p class="detail">{{ message }}</p>
+  <p><a class="btn" href="{{ url_for('index') }}">Back to the dashboard</a></p>
+</section>
+{% endblock %}
