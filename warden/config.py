@@ -18,7 +18,7 @@ STATUS_HELP = {
     "unknown": "could not be determined",
 }
 
-CHECK_TYPES = ("tcp", "http", "https", "tls")
+CHECK_TYPES = ("tcp", "http", "https", "tls", "udp")
 
 
 def data_dir() -> Path:

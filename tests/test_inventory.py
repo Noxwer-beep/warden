@@ -174,5 +174,127 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(tcp.label, "h:5432")
 
 
+class TestAddressAndUdp(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="warden-adv-")
+
+    def write(self, extra: str) -> Path:
+        body = """
+[general]
+timeout_s = 2
+
+[[host]]
+name = "box"
+address = "10.0.0.5"
+
+[[service]]
+name = "svc"
+host = "box"
+port = 80
+check = "tcp"
+""" + extra
+        path = Path(self.dir) / "warden.toml"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_address_override_wins(self):
+        path = self.write('address = "127.0.0.1"\n')
+        inventory = inv.load(path)
+        self.assertEqual(inventory.address_of(inventory.services[0]), "127.0.0.1")
+
+    def test_address_falls_back_to_host(self):
+        inventory = inv.load(self.write(""))
+        self.assertEqual(inventory.address_of(inventory.services[0]), "10.0.0.5")
+
+    def test_bad_address_rejected(self):
+        with self.assertRaises(inv.InventoryError) as ctx:
+            inv.load(self.write('address = "10.0.0.0/24"\n'))
+        self.assertIn("plain host", str(ctx.exception))
+
+    def test_udp_service_accepted(self):
+        body = """
+[general]
+
+[[host]]
+name = "box"
+address = "10.0.0.5"
+
+[[service]]
+name = "svc"
+host = "box"
+port = 53
+check = "udp"
+dns_name = "example.com"
+"""
+        path = Path(self.dir) / "udp.toml"
+        path.write_text(body, encoding="utf-8")
+        inventory = inv.load(path)
+        self.assertEqual(inventory.services[0].check, "udp")
+        self.assertEqual(inventory.services[0].dns_name, "example.com")
+
+    def test_bad_hex_rejected(self):
+        body = """
+[general]
+
+[[host]]
+name = "box"
+address = "10.0.0.5"
+
+[[service]]
+name = "svc"
+host = "box"
+port = 123
+check = "udp"
+payload_hex = "zzz"
+"""
+        path = Path(self.dir) / "w2.toml"
+        path.write_text(body, encoding="utf-8")
+        with self.assertRaises(inv.InventoryError) as ctx:
+            inv.load(path)
+        self.assertIn("valid hex", str(ctx.exception))
+
+    def test_expect_reply_must_be_bool(self):
+        body = """
+[general]
+
+[[host]]
+name = "box"
+address = "10.0.0.5"
+
+[[service]]
+name = "svc"
+host = "box"
+port = 161
+check = "udp"
+expect_reply = "yes"
+"""
+        path = Path(self.dir) / "w3.toml"
+        path.write_text(body, encoding="utf-8")
+        with self.assertRaises(inv.InventoryError) as ctx:
+            inv.load(path)
+        self.assertIn("true or false", str(ctx.exception))
+
+    def test_udp_only_keys_rejected_on_tcp(self):
+        body = """
+[general]
+
+[[host]]
+name = "box"
+address = "10.0.0.5"
+
+[[service]]
+name = "svc"
+host = "box"
+port = 22
+check = "tcp"
+dns_name = "example.com"
+"""
+        path = Path(self.dir) / "w4.toml"
+        path.write_text(body, encoding="utf-8")
+        with self.assertRaises(inv.InventoryError) as ctx:
+            inv.load(path)
+        self.assertIn('only apply to check = "udp"', str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

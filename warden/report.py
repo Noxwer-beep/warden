@@ -96,7 +96,7 @@ def markdown(
     lines.append("|---|---|---|---|---|---|")
     for r in results:
         service = next((s for s in inventory.services if s.name == r.service), None)
-        address = inventory.hosts[service.host].address if service else r.address
+        address = inventory.address_of(service) if service else r.address
         latency = f"{r.latency_ms:.0f} ms" if r.latency_ms is not None else "—"
         detail = (r.detail or r.error or "").replace("|", "\\|")
         lines.append(
@@ -123,6 +123,70 @@ def markdown(
         "_Availability only: Warden connects, requests and handshakes. It does not "
         "authenticate, change anything, or judge certificate trust — use Vantage "
         "for trust and policy._"
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def digest_markdown(digest: Any, uptimes: dict[str, dict[str, Any]] | None = None) -> str:
+    """A week in one page, for the vault."""
+    lines: list[str] = []
+    lines.append(f"# Homelab digest — last {digest.window_days} day(s)")
+    lines.append("")
+    lines.append(f"_{digest.start.replace('T', ' ')} → {digest.end.replace('T', ' ')}_")
+    lines.append("")
+    lines.append(f"**{digest.headline()}**")
+    lines.append("")
+
+    if not digest.runs:
+        lines.append("> No runs recorded in this window — nothing to report. Check the cron job.")
+        lines.append("")
+        return "\n".join(lines)
+
+    if digest.changed:
+        lines.append("## What changed")
+        lines.append("")
+        for change in digest.changed:
+            arrow = "↑" if change["improved"] else "↓"
+            word = "improved" if change["improved"] else "degraded"
+            detail = (change.get("detail") or "").replace("|", "\\|")
+            lines.append(
+                f"- {arrow} **{change['service']}** {word}: "
+                f"{change['before']} → {change['after']}. {detail}".rstrip()
+            )
+        lines.append("")
+    else:
+        lines.append("No service changed state during the window.")
+        lines.append("")
+
+    lines.append("## Services")
+    lines.append("")
+    lines.append("| Service | Checks | Uptime | Current | Avg latency | Cert |")
+    lines.append("|---|---|---|---|---|---|")
+    for s in digest.services:
+        rate = f"{s.rate}%" if s.rate is not None else "—"
+        avg = f"{s.avg_latency_ms} ms" if s.avg_latency_ms is not None else "—"
+        cert = f"{s.cert_days} d" if s.cert_days is not None else "—"
+        lines.append(
+            f"| `{s.service}` | {s.samples} | {rate} | **{STATUS_MARK.get(s.current, s.current)}** "
+            f"| {avg} | {cert} |"
+        )
+    lines.append("")
+
+    if digest.flapping:
+        lines.append("## Flapping")
+        lines.append("")
+        lines.append("These answered some of the time — usually worse than being plainly down.")
+        lines.append("")
+        for s in digest.flapping:
+            lines.append(f"- **{s.service}** — {s.ok} ok, {s.fail} fail of {s.samples} checks")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("")
+    lines.append(
+        "_Availability only, over recorded history. A service that failed between two "
+        "runs is invisible here — check more often to see more._"
     )
     lines.append("")
     return "\n".join(lines)

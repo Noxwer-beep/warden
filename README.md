@@ -6,6 +6,8 @@ You describe what is *supposed* to be running in a single TOML file. Warden chec
 that it is, records the result, and — more usefully — tells you what changed since
 the last time you looked.
 
+![warden check against the lab](docs/img/cli-check.png)
+
 ```
 $ warden check
 
@@ -89,6 +91,47 @@ tags = ["web"]
 | `http` | `GET`s a path over plain TCP | `path`, `expect_status`, `expect_body` |
 | `https` | Same, over TLS; records the certificate | `path`, `expect_status`, `expect_body` |
 | `tls` | Handshake only; records expiry and fingerprint | — |
+| `udp` | Sends a datagram and waits for a reply | `dns_name`, `payload`, `payload_hex`, `expect_reply`, `expect_body` |
+
+**UDP is honest about what it can prove.** There is no handshake, so silence is not
+evidence of failure: a quiet port is reported as `warn`, not `fail`. An ICMP
+port-unreachable *is* evidence, and is reported as a failure. Set
+`expect_reply = true` when the service is supposed to answer — `dns_name` implies it,
+since a resolver that ignores a valid query is down.
+
+```toml
+[[service]]
+name = "dns"
+host = "gateway"
+port = 53
+check = "udp"
+dns_name = "example.com"      # builds a real A query, so the reply means something
+
+[[service]]
+name = "ntp"
+host = "gateway"
+port = 123
+check = "udp"
+payload_hex = "1b000000..."   # 48-byte NTP client request
+
+[[service]]
+name = "snmp"
+host = "gateway"
+port = 161
+check = "udp"
+expect_reply = false          # filtered and silent: warn, not a false alarm
+```
+
+A service can also pin its own address, for anything that only listens on loopback:
+
+```toml
+[[service]]
+name = "postgres"
+host = "this-box"
+port = 5432
+check = "tcp"
+address = "127.0.0.1"         # the host address would always refuse
+```
 
 Parsing is strict on purpose: a service pointing at a host that does not exist is a
 refusal, not a silently-unwatched service. Duplicate names, out-of-range ports and
@@ -112,6 +155,7 @@ warden check --only web,db      only services with those tags
 warden check --service postgres one service
 warden status                   latest recorded state, with uptime
 warden drift                    what changed since the previous run
+warden digest --days 7          a window of history in one page
 warden history <service>        one service's timeline
 warden export -o STATUS.md      markdown page for the documentation vault
 warden ui                       dashboard on 127.0.0.1:8770
@@ -140,6 +184,36 @@ Four kinds of change, ordered by how much you should care: **worsened**,
 **vanished**, **certificate rotated**, **appeared**, **improved**. Ordering is
 deliberate — a new certificate is informational, a service that went from ok to fail
 is not.
+
+## The weekly digest
+
+A status table answers "is it up now". A digest answers "was it up, and what
+wobbled" — which needs history:
+
+```
+$ warden digest
+
+  16 service(s) over 4 run(s) · 11 clean · 10 failed check(s) · worst: gateway-dns at 0.0%
+
+SERVICE                    CHECKS     UPTIME   CURRENT       AVG LAT      CERT
+──────────────────────────────────────────────────────────────────────────────
+gateway-dns                     4       0.0%   ✗ fail        4004 ms         —
+gateway-ntp                     4     100.0%   ✓ ok             1 ms         —
+portfolio                       4      75.0%   ✓ ok             5 ms         —
+
+  changed during the window
+  ↑ portfolio fail → ok  HTTP 200 in 4 ms
+
+  flapping — answered some of the time
+    portfolio: 3 ok, 1 fail of 4
+```
+
+![warden digest](docs/img/cli-digest.png)
+
+`--out notes.md` writes the same as markdown for a documentation vault, and
+`--json` for anything else. **Flapping** is called out separately: a service that
+answers 75% of the time is usually worse than one that is plainly down, because it
+never quite gets fixed.
 
 ## Dashboard
 
@@ -180,7 +254,7 @@ Use `--fail-on fail` (the default) and let the exit code drive your alerting.
 python3 -m unittest discover -s tests -t .
 ```
 
-69 tests, stdlib only, no mocking: the prober tests bind real sockets and speak real
+102 tests, stdlib only, no mocking: the prober tests bind real sockets and speak real
 HTTP/TLS to 127.0.0.1. Storage, drift and inventory parsing are covered for the
 failure cases, because those are the ones that matter.
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import webbrowser
@@ -25,11 +26,14 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from . import __version__, config, drift as driftmod, inventory as invmod, report, store
+from . import __version__, config, digest as digestmod, drift as driftmod, inventory as invmod, report, store
 from .config import STATUS_ORDER
 from .prober import CheckResult, run_checks
 
-console = Console()
+# Piped output must be stable: a table that reflows at the default 80 columns
+# would wrap mid-row and make every screenshot and diff unreadable.
+_WIDTH = None if sys.stdout.isatty() else int(os.environ.get("COLUMNS", "100"))
+console = Console(width=_WIDTH)
 err = Console(stderr=True)
 
 STATUS_STYLE = {
@@ -273,6 +277,121 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0 if not latest.get("n_fail") else 4
 
 
+CAT = [
+    r"        /\                 /\ ",
+    r"       /  \_______________/  \ ",
+    r"      |    ||         ||    | ",
+    r"      |          v           | ",
+    r"       \___________________/  ",
+]
+
+CAT_LINES = [
+    "homelab inventory, health and drift",
+    "one file says what should be running",
+    "warden checks, remembers, and reports the difference",
+]
+
+
+def print_cat(extra: str = "") -> None:
+    """The mark, in ASCII. Same shape as the logo: ears, slit eyes, one nose."""
+    text = Text()
+    for index, line in enumerate(CAT):
+        if index:
+            text.append("\n")
+        if "v" in line and "|" in line:
+            head, _, tail = line.partition("v")
+            text.append(head, style="default")
+            text.append("v", style="#c9f24d")
+            text.append(tail, style="default")
+        else:
+            text.append(line)
+
+    side = Text()
+    side.append("\n\n")
+    side.append("WARDEN", style="bold")
+    side.append(f"  {__version__}\n", style="dim")
+    for line in CAT_LINES:
+        side.append(line + "\n", style="dim")
+
+    table = Table.grid(padding=(0, 3))
+    table.add_row(text, side)
+    console.print()
+    console.print(table)
+    if extra:
+        console.print(f"[dim]  {extra}[/]")
+    console.print()
+
+
+def cmd_cat(args: argparse.Namespace) -> int:
+    print_cat("press c on the portfolio site for the other one")
+    return 0
+
+
+def cmd_digest(args: argparse.Namespace) -> int:
+    """A window of history, summarised. The point is the shape of the week."""
+    digest = digestmod.build(args.days)
+
+    if args.json:
+        json.dump(digest.to_dict(), sys.stdout, indent=2, ensure_ascii=False)
+        sys.stdout.write("\n")
+        return 0
+
+    md = report.digest_markdown(digest)
+    if args.out:
+        path = Path(args.out).expanduser()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(md, encoding="utf-8")
+        console.print(f"[dim]wrote[/] {path}")
+        return 0
+
+    header(f"last {digest.window_days} day(s)")
+    console.print(f"  [bold]{digest.headline()}[/]")
+    console.print()
+
+    if not digest.runs:
+        console.print("[dim]  No runs in this window — check that the cron job is running.[/]")
+        console.print()
+        return 0
+
+    table = Table(box=box.SIMPLE_HEAD, show_edge=False, pad_edge=False, expand=False)
+    table.add_column("SERVICE", no_wrap=True, overflow="ellipsis", width=22)
+    table.add_column("CHECKS", width=7, no_wrap=True, justify="right")
+    table.add_column("UPTIME", width=8, no_wrap=True, justify="right")
+    table.add_column("CURRENT", width=9, no_wrap=True)
+    table.add_column("AVG LAT", width=9, no_wrap=True, justify="right")
+    table.add_column("CERT", width=6, no_wrap=True, justify="right")
+    for s in digest.services:
+        table.add_row(
+            s.service,
+            str(s.samples),
+            f"{s.rate}%" if s.rate is not None else "—",
+            status_cell(s.current),
+            f"{s.avg_latency_ms:.0f} ms" if s.avg_latency_ms is not None else "—",
+            f"{s.cert_days} d" if s.cert_days is not None else "—",
+        )
+    console.print(table)
+    console.print()
+
+    if digest.changed:
+        console.print("  [dim]changed during the window[/]")
+        for change in digest.changed:
+            arrow = "↑" if change["improved"] else "↓"
+            style = "green" if change["improved"] else "bold red"
+            console.print(
+                f"  [{style}]{arrow}[/] [bold]{change['service']}[/] "
+                f"{change['before']} → {change['after']}  [dim]{change['detail']}[/]"
+            )
+        console.print()
+
+    if digest.flapping:
+        console.print("  [yellow]flapping[/] [dim]— answered some of the time[/]")
+        for s in digest.flapping:
+            console.print(f"    {s.service}: {s.ok} ok, {s.fail} fail of {s.samples}")
+        console.print()
+
+    return 0
+
+
 def cmd_drift(args: argparse.Namespace) -> int:
     latest = store.latest_run()
     if latest is None:
@@ -473,6 +592,13 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--json", action="store_true")
     d.set_defaults(func=cmd_drift)
 
+    dg = sub.add_parser("digest", help="a week of history in one page")
+    common(dg)
+    dg.add_argument("--days", type=int, default=7, help="window in days (default: 7)")
+    dg.add_argument("--json", action="store_true")
+    dg.add_argument("-o", "--out", metavar="PATH", help="write markdown here instead of stdout")
+    dg.set_defaults(func=cmd_digest)
+
     h = sub.add_parser("history", help="history for one service")
     h.add_argument("service")
     h.add_argument("-n", "--limit", type=int, default=30)
@@ -499,6 +625,9 @@ def build_parser() -> argparse.ArgumentParser:
     doc = sub.add_parser("doctor", help="check the environment")
     doc.set_defaults(func=cmd_doctor)
 
+    cat = sub.add_parser("cat", help="the cat")
+    cat.set_defaults(func=cmd_cat)
+
     return p
 
 
@@ -506,8 +635,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):
-        header()
-        console.print("[dim]no command given:[/]")
+        print_cat("bare `warden` is the greeting; `warden check` is the work")
         parser.print_help()
         return 0
     return args.func(args)

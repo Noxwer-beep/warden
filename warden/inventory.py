@@ -7,6 +7,7 @@ for a service nobody is actually watching.
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,11 +46,39 @@ tags = ["web"]
 # check = "tcp"    just a connect (databases, SSH, raw ports)
 # check = "tls"    handshake + certificate expiry
 # check = "https"  HTTP over TLS
+# check = "udp"    send a datagram and wait — see the README for dns_name/payload
+#
+# A service may pin its own address for anything that only listens on loopback:
+#   address = "127.0.0.1"
+#   dns_name = "example.com"     # udp: builds a real DNS query
+#   expect_reply = false         # udp: silence is warn, not fail
 """
 
 
 class InventoryError(Exception):
     """The inventory file is missing, unparsable, or inconsistent."""
+
+
+def dns_query(name: str) -> bytes:
+    """A minimal DNS A query — enough to prove a resolver answers.
+
+    UDP has no handshake, so "is it up" means "did it reply". This builds a real
+    query so the reply is meaningful rather than whatever a stray packet evokes.
+    """
+    txid = os.urandom(2)
+    header = txid + b"\x01\x00" + b"\x00\x01" + b"\x00\x00" * 3
+    labels = b""
+    for label in name.strip(".").split("."):
+        if not label:
+            raise InventoryError(f"dns_name has an empty label: {name!r}")
+        try:
+            raw = label.encode("idna")
+        except UnicodeError as exc:
+            raise InventoryError(f"dns_name has an invalid label {label!r}: {exc}") from None
+        if not 0 < len(raw) < 64:
+            raise InventoryError(f"dns_name has an invalid label: {label!r}")
+        labels += bytes([len(raw)]) + raw
+    return header + labels + b"\x00" + b"\x00\x01" + b"\x00\x01"
 
 
 @dataclass(frozen=True)
@@ -77,13 +106,29 @@ class Service:
     timeout: float | None = None
     tags: tuple[str, ...] = ()
     notes: str = ""
+    # overrides the host address — for services that only listen on loopback
+    address: str = ""
+    # udp
+    payload: str = ""
+    payload_hex: str = ""
+    dns_name: str = ""
+    expect_reply: bool | None = None
+
+    def udp_payload(self) -> bytes:
+        """What to put on the wire for a udp check."""
+        if self.dns_name:
+            return dns_query(self.dns_name)
+        if self.payload_hex:
+            return bytes.fromhex(self.payload_hex)
+        return self.payload.encode()
 
     @property
     def label(self) -> str:
+        where = self.address or self.host
         if self.check in ("http", "https", "tls") and self.port:
             scheme = "https" if self.check in ("https", "tls") else "http"
-            return f"{scheme}://{self.host}:{self.port}{self.path if self.check != 'tls' else ''}"
-        return f"{self.host}:{self.port or '-'}"
+            return f"{scheme}://{where}:{self.port}{self.path if self.check != 'tls' else ''}"
+        return f"{where}:{self.port or '-'}"
 
     def to_dict(self) -> dict:
         return {
@@ -91,6 +136,7 @@ class Service:
             "port": self.port, "path": self.path,
             "expect_status": self.expect_status, "tags": list(self.tags),
             "notes": self.notes, "label": self.label,
+            "address": self.address, "dns_name": self.dns_name,
         }
 
 
@@ -106,7 +152,8 @@ class Inventory:
     # -- queries ----------------------------------------------------------
 
     def address_of(self, service: Service) -> str:
-        return self.hosts[service.host].address
+        """Where to actually send the check — a service may pin its own address."""
+        return service.address or self.hosts[service.host].address
 
     def services_for(self, host_name: str) -> list[Service]:
         return [s for s in self.services if s.host == host_name]
@@ -238,6 +285,28 @@ def load(path: str | Path) -> Inventory:
             if not 100 <= expect_status <= 599:
                 raise InventoryError(f"service {name!r}: expect_status must be 100-599")
 
+        address = str(entry.get("address") or "").strip()
+        if address and (" " in address or "/" in address or ":" in address):
+            raise InventoryError(
+                f"service {name!r}: address must be a plain host or IPv4 address, got {address!r}"
+            )
+
+        payload_hex = str(entry.get("payload_hex") or "").strip()
+        if payload_hex:
+            try:
+                bytes.fromhex(payload_hex)
+            except ValueError:
+                raise InventoryError(f"service {name!r}: payload_hex is not valid hex") from None
+
+        expect_reply = entry.get("expect_reply")
+        if expect_reply is not None and not isinstance(expect_reply, bool):
+            raise InventoryError(f"service {name!r}: expect_reply must be true or false")
+
+        if check != "udp" and (payload_hex or entry.get("dns_name") or expect_reply is not None):
+            raise InventoryError(
+                f"service {name!r}: payload_hex, dns_name and expect_reply only apply to check = \"udp\""
+            )
+
         inv.services.append(
             Service(
                 name=name,
@@ -251,6 +320,11 @@ def load(path: str | Path) -> Inventory:
                 timeout=_number(entry.get("timeout_s"), what=f"{name}.timeout_s"),
                 tags=_as_tuple(entry.get("tags")),
                 notes=str(entry.get("notes") or ""),
+                address=address,
+                payload=str(entry.get("payload") or ""),
+                payload_hex=payload_hex,
+                dns_name=str(entry.get("dns_name") or "").strip(),
+                expect_reply=expect_reply,
             )
         )
 

@@ -72,3 +72,39 @@ check = "http"
 path = "/"
 expect_status = 200
 tags = ["storage", "web"]
+
+# ---------------------------------------------------------------- loopback
+
+[[service]]
+name = "postgres"
+host = "hypervisor"
+port = 5432
+check = "tcp"
+address = "127.0.0.1"        # only listens on the box itself
+tags = ["db"]
+
+# ---------------------------------------------------------------- udp
+
+[[service]]
+name = "dns"
+host = "gateway"
+port = 53
+check = "udp"
+dns_name = "example.com"     # a resolver that ignores a valid query is down
+tags = ["network"]
+
+[[service]]
+name = "ntp"
+host = "gateway"
+port = 123
+check = "udp"
+payload_hex = "1b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+tags = ["network", "time"]
+
+[[service]]
+name = "snmp"
+host = "gateway"
+port = 161
+check = "udp"
+expect_reply = false         # filtered and silent — warn, not a false alarm
+tags = ["network"]

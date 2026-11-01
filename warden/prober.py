@@ -290,6 +290,65 @@ def _check_tls(service: Service, address: str, timeout: float, defaults: Default
     return result
 
 
+def _check_udp(service: Service, address: str, timeout: float, defaults: Defaults) -> CheckResult:
+    """UDP has no handshake, so a check is a send and a wait.
+
+    Silence is not proof of failure — plenty of daemons ignore packets they do not
+    understand — so silence is `warn` unless the inventory says a reply is
+    expected. An ICMP port-unreachable is definitive, and surfaces as ECONNREFUSED
+    because the socket is connected first.
+    """
+    result = CheckResult(service.name, service.check, address, service.port or 0)
+    try:
+        payload = service.udp_payload()
+    except Exception as exc:  # noqa: BLE001 - bad payload is an inventory problem
+        result.status = "unknown"
+        result.error = str(exc)
+        result.detail = "could not build the probe payload"
+        return result
+
+    expect_reply = service.expect_reply if service.expect_reply is not None else bool(payload)
+    start = time.monotonic()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(timeout)
+            sock.connect((address, service.port or 0))
+            sock.send(payload)
+            data = sock.recv(4096)
+    except socket.timeout:
+        result.latency_ms = _elapsed_ms(start)
+        if expect_reply:
+            result.status = "fail"
+            result.detail = f"no reply within {timeout:g}s"
+            result.error = "timed out"
+        else:
+            result.status = "warn"
+            result.detail = "no reply — normal for many UDP services, nothing to prove it is down"
+        return result
+    except ConnectionRefusedError:
+        result.status = "fail"
+        result.error = "port unreachable (ICMP)"
+        result.detail = "the host answered with ICMP port unreachable"
+        return result
+    except OSError as exc:
+        result.status = "fail"
+        result.error = str(exc)
+        result.detail = "could not send the probe"
+        return result
+
+    result.latency_ms = _elapsed_ms(start)
+    result.status = "ok"
+    result.detail = f"replied in {result.latency_ms:.0f} ms ({len(data)} bytes)"
+    if service.expect_body and service.expect_body.encode() not in data:
+        result.status = "fail"
+        result.detail = f"replied, but not with {service.expect_body!r}"
+        return result
+    if result.latency_ms > defaults.warn_latency_ms:
+        result.status = "warn"
+        result.detail += f" — above the {defaults.warn_latency_ms} ms threshold"
+    return result
+
+
 def urllib_split(url: str) -> tuple[str, str]:
     """Split an absolute URL into (host, path). Kept tiny on purpose."""
     rest = url.split("://", 1)[-1]
@@ -298,7 +357,13 @@ def urllib_split(url: str) -> tuple[str, str]:
     return host, "/" + path if path else "/"
 
 
-CHECKS = {"tcp": _check_tcp, "http": _check_http, "https": _check_http, "tls": _check_tls}
+CHECKS = {
+    "tcp": _check_tcp,
+    "http": _check_http,
+    "https": _check_http,
+    "tls": _check_tls,
+    "udp": _check_udp,
+}
 
 
 def probe(service: Service, address: str, defaults: Defaults, timeout: float | None = None) -> CheckResult:

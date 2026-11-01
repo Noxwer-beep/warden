@@ -176,6 +176,29 @@ def uptime(service: str, limit: int = 100) -> dict[str, Any]:
     }
 
 
+def checks_since(since: str) -> list[dict[str, Any]]:
+    """Every recorded check at or after `since` (an ISO timestamp), oldest first.
+
+    The digest needs the whole window in one pass — per-service queries would mean
+    one round trip per service and a race between them.
+    """
+    init_db()
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT c.*, r.started FROM checks c JOIN runs r ON r.id = c.run_id
+               WHERE r.started >= ? ORDER BY r.started ASC, c.service ASC""",
+            (since,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def runs_since(since: str) -> int:
+    init_db()
+    with connect() as conn:
+        row = conn.execute("SELECT COUNT(*) c FROM runs WHERE started >= ?", (since,)).fetchone()
+    return row["c"] if row else 0
+
+
 def prune(keep_runs: int = 200) -> int:
     """Delete the oldest runs beyond `keep_runs`. Returns the number removed."""
     init_db()
