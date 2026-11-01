@@ -50,9 +50,9 @@ Python 3.11+ and `rich` for the tables (`flask` only if you want the dashboard).
 Everything else — TOML, SQLite, sockets, TLS — is standard library:
 
 ```bash
-pip install rich flask          # optional, both
+pip install rich               # the only dependency; flask too if you want the UI
 git clone <repo> warden && cd warden
-./warden init                # writes warden.toml
+./warden init                  # writes warden.toml
 ./warden check
 ```
 
