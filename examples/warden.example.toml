@@ -76,11 +76,11 @@ tags = ["storage", "web"]
 # ---------------------------------------------------------------- loopback
 
 [[service]]
-name = "postgres"
+name = "postgres-local"
 host = "hypervisor"
 port = 5432
 check = "tcp"
-address = "127.0.0.1"        # only listens on the box itself
+address = "127.0.0.1"        # only listens on the box itself, not the host address
 tags = ["db"]
 
 # ---------------------------------------------------------------- udp
