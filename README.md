@@ -2,9 +2,10 @@
 
 **Homelab inventory, health checks and drift detection — one file in, a dashboard out.**
 
-You describe what is *supposed* to be running in a single TOML file. Warden checks
-that it is, records the result, and — more usefully — tells you what changed since
-the last time you looked.
+A lab only stays explainable if something is checking it. One TOML file says what is
+supposed to be running; Warden connects, records the answer, and tells you what changed
+since the last time you looked. I wrote it because I kept forgetting what I had
+actually deployed.
 
 ![warden check against the lab](docs/img/cli-check.png)
 
