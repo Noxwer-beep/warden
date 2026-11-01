@@ -46,14 +46,14 @@ read. It is also a machine-readable inventory: an agent or a script can ask
 
 ## Install
 
-Nothing beyond Python 3.11+ (`tomllib` is stdlib) and, optionally, `rich` and
-`flask` for the pretty CLI and the dashboard:
+Python 3.11+ and `rich` for the tables (`flask` only if you want the dashboard).
+Everything else — TOML, SQLite, sockets, TLS — is standard library:
 
 ```bash
 pip install rich flask          # optional, both
 git clone <repo> warden && cd warden
-./warden.py init                # writes warden.toml
-./warden.py check
+./warden init                # writes warden.toml
+./warden check
 ```
 
 Or `pip install -e .` for a `warden` command on PATH.
@@ -243,8 +243,8 @@ The point of history is that it keeps itself. A nightly run plus an export gives
 a status page that is true:
 
 ```cron
-15 3 * * *  cd ~/warden && ./warden.py check --quiet >/dev/null 2>&1
-20 3 * * *  cd ~/warden && ./warden.py export -o ~/Obsidian/Engineering/Homelab/status.md
+15 3 * * *  cd ~/warden && ./warden check --quiet >/dev/null 2>&1
+20 3 * * *  cd ~/warden && ./warden export -o ~/Obsidian/Engineering/Homelab/status.md
 ```
 
 Use `--fail-on fail` (the default) and let the exit code drive your alerting.

@@ -30,6 +30,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Byte-compile
-        run: python -m compileall -q warden tests
+        run: python -m compileall -q src/warden tests
       - name: Example inventory parses
-        run: python -c "from warden import inventory; inventory.load('examples/warden.example.toml')"
+        run: PYTHONPATH=src python -c "from warden import inventory; inventory.load('examples/warden.example.toml')"
