@@ -31,6 +31,25 @@ STATE: dict[str, Any] = {
 }
 
 
+def build_drift(latest: dict | None):
+    """Drift between the latest run and the one before it.
+
+    Stored rows carry no run metadata, so the compare side is filled in here —
+    otherwise the payload says "run X" and compares against nothing.
+    """
+    if latest is None:
+        return None
+    base = store.previous_run(latest["id"])
+    drift = driftmod.diff_runs(
+        base,
+        store.results_for(base["id"]) if base else [],
+        store.results_for(latest["id"]),
+    )
+    drift.compare_run = latest["id"]
+    drift.compare_started = latest["started"]
+    return drift
+
+
 def create_app(inventory_path: str | None = None) -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.config["INVENTORY"] = inventory_path
@@ -56,9 +75,7 @@ def create_app(inventory_path: str | None = None) -> Flask:
             progress = {"done": STATE["done"], "total": STATE["total"]}
         latest = store.latest_run()
         rows = store.results_for(latest["id"]) if latest else []
-        base = store.previous_run(latest["id"]) if latest else None
-        base_rows = store.results_for(base["id"]) if base else []
-        drift = driftmod.diff_runs(base, base_rows, rows) if latest else None
+        drift = build_drift(latest)
 
         services = {s.name: s for s in inv.services} if inv else {}
         uptimes = {r["service"]: store.uptime(r["service"]) for r in rows}
@@ -111,14 +128,7 @@ def create_app(inventory_path: str | None = None) -> Flask:
             "progress": progress,
             "run": latest,
             "services": rows,
-            "drift": driftmod.to_dict(
-                driftmod.diff_runs(
-                    store.previous_run(latest["id"]) if latest else None,
-                    store.results_for(store.previous_run(latest["id"])["id"])
-                    if latest and store.previous_run(latest["id"]) else [],
-                    rows,
-                )
-            ) if latest else None,
+            "drift": driftmod.to_dict(build_drift(latest)) if latest else None,
             **live,
         })
 
@@ -135,13 +145,7 @@ def create_app(inventory_path: str | None = None) -> Flask:
         latest = store.latest_run()
         if latest is None:
             return jsonify({"error": "no runs yet"}), 404
-        base = store.previous_run(latest["id"])
-        drift = driftmod.diff_runs(
-            base,
-            store.results_for(base["id"]) if base else [],
-            store.results_for(latest["id"]),
-        )
-        return jsonify(driftmod.to_dict(drift))
+        return jsonify(driftmod.to_dict(build_drift(latest)))
 
     @app.get("/api/history/<service>")
     def api_history(service: str):

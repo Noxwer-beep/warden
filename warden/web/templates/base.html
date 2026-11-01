@@ -14,7 +14,7 @@
       <span class="word">WARDEN</span>
     </a>
     <p class="meta" id="meta">
-      {% if inv %}{{ inv.hosts|length }} host(s) · {{ inv.services|length }} service(s){% endif %}
+      {% if inv %}{{ inv.hosts|length }} host{{ '' if inv.hosts|length == 1 else 's' }} · {{ inv.services|length }} service{{ '' if inv.services|length == 1 else 's' }}{% endif %}
     </p>
     <form method="post" action="{{ url_for('run_now') }}" class="run-form">
       <button class="btn primary" type="submit" {% if running %}disabled{% endif %}>
